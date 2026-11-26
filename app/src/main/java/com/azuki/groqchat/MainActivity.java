@@ -1,6 +1,7 @@
 package com.azuki.groqchat;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -8,6 +9,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
+import android.text.InputType;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
 import android.content.Context;
@@ -33,8 +35,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
-    // Add your own Groq key locally before building. Do not commit real keys to GitHub.
-    private static final String GROQ_API_KEY = "PASTE_YOUR_GROQ_API_KEY_HERE";
+    private static final String PREFS = "groq_settings";
+    private static final String KEY_API = "groq_api_key";
+    private String apiKey = "";
     private static final String MODEL = "openai/gpt-oss-120b";
     private static final String ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 
@@ -50,9 +53,11 @@ public class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        apiKey = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_API, "");
         buildInterface();
         addHistoryMessage("system", "You are a helpful, friendly AI assistant. Answer clearly and naturally.");
         addMessageBubble("assistant", "Hey! I'm ready. What would you like to talk about?");
+        if (apiKey.trim().isEmpty()) main.post(this::showApiKeyDialog);
     }
 
     private int dp(float n) {
@@ -91,6 +96,12 @@ public class MainActivity extends Activity {
         titles.addView(title);
         titles.addView(label(MODEL, 11, 0xFF8EA1B5));
         header.addView(titles, new LinearLayout.LayoutParams(0, -2, 1));
+
+        Button keyButton = new Button(this);
+        keyButton.setText("API key");
+        keyButton.setTextSize(11);
+        keyButton.setAllCaps(false);
+        header.addView(keyButton, new LinearLayout.LayoutParams(dp(78), dp(42)));
 
         Button clear = new Button(this);
         clear.setText("New chat");
@@ -152,8 +163,52 @@ public class MainActivity extends Activity {
             return true;
         });
         clear.setOnClickListener(v -> newChat());
+        keyButton.setOnClickListener(v -> showApiKeyDialog());
     }
 
+    private void showApiKeyDialog() {
+        EditText keyInput = new EditText(this);
+        keyInput.setSingleLine(true);
+        keyInput.setTextSize(14);
+        keyInput.setHint("gsk_...");
+        keyInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        keyInput.setText(apiKey);
+        keyInput.setSelection(keyInput.getText().length());
+
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setPadding(dp(22), dp(8), dp(22), 0);
+        wrap.addView(keyInput, new LinearLayout.LayoutParams(-1, -2));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Groq API key")
+                .setMessage("Enter your Groq API key. It is saved only in this app on this device.")
+                .setView(wrap)
+                .setPositiveButton("Save", null)
+                .setNegativeButton("Cancel", null)
+                .setNeutralButton("Clear key", null)
+                .create();
+        dialog.setOnShowListener(ignored -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String value = keyInput.getText().toString().trim();
+                if (value.isEmpty()) { keyInput.setError("Enter an API key"); return; }
+                apiKey = value;
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_API, apiKey).apply();
+                status.setText("● API key saved");
+                status.setTextColor(0xFF63D6A5);
+                Toast.makeText(this, "API key saved on this device.", Toast.LENGTH_SHORT).show();
+                dialog.dismiss();
+            });
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
+                apiKey = "";
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(KEY_API).apply();
+                status.setText("● API key required");
+                status.setTextColor(0xFFFFC66D);
+                Toast.makeText(this, "API key cleared.", Toast.LENGTH_SHORT).show();
+                dialog.dismiss();
+            });
+        });
+        dialog.show();
+    }
     private void addHistoryMessage(String role, String content) {
         try {
             JSONObject obj = new JSONObject();
@@ -193,8 +248,8 @@ public class MainActivity extends Activity {
         if (waiting) return;
         String prompt = composer.getText().toString().trim();
         if (prompt.isEmpty()) return;
-        if (GROQ_API_KEY.startsWith("PASTE_")) {
-            Toast.makeText(this, "Add your Groq API key in MainActivity.java first.", Toast.LENGTH_LONG).show();
+        if (apiKey.trim().isEmpty()) {
+            showApiKeyDialog();
             return;
         }
 
@@ -236,7 +291,7 @@ public class MainActivity extends Activity {
             connection.setConnectTimeout(25000);
             connection.setReadTimeout(90000);
             connection.setDoOutput(true);
-            connection.setRequestProperty("Authorization", "Bearer " + GROQ_API_KEY);
+            connection.setRequestProperty("Authorization", "Bearer " + apiKey);
             connection.setRequestProperty("Content-Type", "application/json");
             connection.setRequestProperty("Accept", "application/json");
 

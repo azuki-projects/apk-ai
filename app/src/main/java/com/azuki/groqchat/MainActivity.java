@@ -282,11 +282,26 @@ public class MainActivity extends Activity {
             try {
                 String answer = requestGroq();
                 main.post(() -> {
-                    status.setText(answer.contains("```") ? "● Working..." : "● Ready");
-                    addHistoryMessage("assistant", answer); addMessageBubble("assistant", answer); saveCurrentChat();
-                    status.setText("● Ready");
-                    status.setTextColor(0xFF63D6A5);
-                    setWaiting(false);
+                    boolean hasCodeFiles = answer.contains("```");
+                    if (hasCodeFiles) {
+                        status.setText("● Working...");
+                        status.setTextColor(0xFFFFC66D);
+                        main.postDelayed(() -> {
+                            addHistoryMessage("assistant", answer);
+                            addMessageBubble("assistant", answer);
+                            saveCurrentChat();
+                            status.setText("● Ready");
+                            status.setTextColor(0xFF63D6A5);
+                            setWaiting(false);
+                        }, 250);
+                    } else {
+                        addHistoryMessage("assistant", answer);
+                        addMessageBubble("assistant", answer);
+                        saveCurrentChat();
+                        status.setText("● Ready");
+                        status.setTextColor(0xFF63D6A5);
+                        setWaiting(false);
+                    }
                 });
             } catch (Exception e) {
                 String error = e.getMessage() == null ? "Unknown error" : e.getMessage();

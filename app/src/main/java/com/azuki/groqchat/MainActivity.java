@@ -70,7 +70,6 @@ public class MainActivity extends Activity {
         buildInterface();
         loadChats();
         if (chats.isEmpty()) createChat(); else switchChat(chats.size() - 1);
-        addMessageBubble("assistant", "Hey! I'm ready. What would you like to talk about?");
         if (apiKey.trim().isEmpty()) main.post(this::showApiKeyDialog);
     }
 
@@ -179,7 +178,7 @@ public class MainActivity extends Activity {
             sendMessage();
             return true;
         });
-        clear.setOnClickListener(v -> newChat());
+        clear.setOnClickListener(v -> createChat());
         keyButton.setOnClickListener(v -> showApiKeyDialog());
         chatsButton.setOnClickListener(v -> showChatsDialog());
     }

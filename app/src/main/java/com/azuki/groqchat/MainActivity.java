@@ -317,6 +317,8 @@ public class MainActivity extends Activity {
             payload.put("messages", new JSONArray(messages));
             payload.put("temperature", 0.7);
             payload.put("max_completion_tokens", 4096);
+            payload.put("reasoning_effort", "medium");
+            payload.put("include_reasoning", false);
 
             try (OutputStream out = connection.getOutputStream()) {
                 out.write(payload.toString().getBytes(StandardCharsets.UTF_8));

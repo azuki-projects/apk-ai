@@ -359,14 +359,149 @@ public class MainActivity extends Activity {
         sendButton.setText(value ? "..." : "Send");
     }
 
-    private void newChat() {
-        if (waiting) return;
-        messages.clear();
-        addHistoryMessage("system", "You are a helpful, friendly AI assistant. Answer clearly and naturally.");
+    private static class CodeFile {
+        final String name, code;
+        CodeFile(String name, String code) { this.name=name; this.code=code; }
+    }
+
+    private String makeChatTitle(String prompt) {
+        String clean=prompt.replaceAll("\\s+"," ").trim();
+        if(clean.length()>38) clean=clean.substring(0,38).trim()+"...";
+        return clean.isEmpty()?"New chat":clean;
+    }
+
+    private void loadChats() {
+        chats.clear();
+        try {
+            JSONArray a=new JSONArray(getSharedPreferences(PREFS,MODE_PRIVATE).getString("saved_chats","[]"));
+            for(int i=0;i<a.length();i++) chats.add(a.getJSONObject(i));
+        } catch(Exception ignored) { chats.clear(); }
+    }
+
+    private void saveCurrentChat() {
+        if(currentChatIndex<0||currentChatIndex>=chats.size()) return;
+        try {
+            JSONArray history=new JSONArray();
+            for(JSONObject item:messages) history.put(item);
+            chats.get(currentChatIndex).put("messages",history);
+            getSharedPreferences(PREFS,MODE_PRIVATE).edit().putString("saved_chats",new JSONArray(chats).toString()).apply();
+        } catch(Exception ignored) {}
+    }
+
+    private void createChat() {
+        try {
+            JSONObject chat=new JSONObject(); chat.put("title","New chat"); chat.put("messages",new JSONArray());
+            chats.add(chat); currentChatIndex=chats.size()-1; messages.clear();
+            addHistoryMessage("system","You are a helpful AI assistant. Help with analysis, explanations, planning, and creating project files. For source files, use fenced blocks with the filename and extension on the opening line, followed by a newline and complete file contents. Do not reveal private hidden chain-of-thought; provide concise conclusions and progress summaries.");
+            saveCurrentChat();
+        } catch(Exception ignored) {}
         messageList.removeAllViews();
-        addMessageBubble("assistant", "New chat started. What would you like to talk about?");
-        status.setText("● Ready");
-        status.setTextColor(0xFF63D6A5);
+        addMessageBubble("assistant","New chat started. What would you like to work on?");
+        status.setText("● Ready"); status.setTextColor(0xFF63D6A5);
+    }
+
+    private void switchChat(int index) {
+        if(index<0||index>=chats.size()) return;
+        saveCurrentChat(); currentChatIndex=index; messages.clear();
+        try {
+            JSONArray a=chats.get(index).optJSONArray("messages");
+            if(a!=null) for(int i=0;i<a.length();i++) messages.add(a.getJSONObject(i));
+        } catch(Exception ignored) {}
+        messageList.removeAllViews(); boolean visible=false;
+        for(JSONObject item:messages) {
+            String role=item.optString("role");
+            if(!"system".equals(role)) { addMessageBubble(role,item.optString("content")); visible=true; }
+        }
+        if(!visible) addMessageBubble("assistant","Chat opened. What would you like to work on?");
+        status.setText("● Ready"); status.setTextColor(0xFF63D6A5);
+    }
+
+    private void showChatsDialog() {
+        saveCurrentChat();
+        String[] names=new String[chats.size()+1]; names[0]="+ New chat";
+        for(int i=0;i<chats.size();i++) names[i+1]=chats.get(i).optString("title","New chat");
+        new AlertDialog.Builder(this).setTitle("Your chats")
+            .setItems(names,(d,w)->{if(w==0)createChat();else switchChat(w-1);})
+            .setNegativeButton("Close",null).show();
+    }
+
+    private void renderRichContent(LinearLayout bubble,String content) {
+        Pattern p=Pattern.compile("(?s)\\x60{3}([A-Za-z0-9_./-]+\\.[A-Za-z0-9_-]+)\\s*\\n(.*?)\\x60{3}");
+        Matcher m=p.matcher(content); int cursor=0; ArrayList<CodeFile> files=new ArrayList<>();
+        while(m.find()) {
+            String before=content.substring(cursor,m.start()).trim();
+            if(!before.isEmpty()) addPlainText(bubble,before);
+            CodeFile file=new CodeFile(m.group(1),m.group(2)); files.add(file); addCodeCard(bubble,file);
+            cursor=m.end();
+        }
+        String after=content.substring(cursor).trim(); if(!after.isEmpty()) addPlainText(bubble,after);
+        if(!files.isEmpty()) {
+            Button zip=new Button(this); zip.setText("Create ZIP ("+files.size()+" files)");
+            zip.setAllCaps(false); zip.setTextSize(12); zip.setOnClickListener(v->createZip(files)); bubble.addView(zip);
+        }
+        if(cursor==0) addPlainText(bubble,content);
+    }
+
+    private void addPlainText(LinearLayout parent,String value) {
+        TextView t=label(value,15,0xFFF1F5F8); t.setTextIsSelectable(true); t.setLineSpacing(dp(2),1f); parent.addView(t);
+    }
+
+    private void addCodeCard(LinearLayout parent,CodeFile file) {
+        LinearLayout card=new LinearLayout(this); card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(10),dp(8),dp(10),dp(8)); card.setBackground(shape(0xFF111923,12));
+        LinearLayout top=new LinearLayout(this); top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView name=label(file.name,12,0xFF8DE2C1); name.setTypeface(Typeface.DEFAULT_BOLD);
+        top.addView(name,new LinearLayout.LayoutParams(0,-2,1));
+        Button copy=new Button(this); copy.setText("Copy"); copy.setAllCaps(false); copy.setTextSize(10);
+        top.addView(copy,new LinearLayout.LayoutParams(dp(62),dp(36))); card.addView(top);
+        String[] lines=file.code.split("\\n",-1);
+        final String preview=lines.length>4?lines[0]+"\n"+lines[1]+"\n"+lines[2]+"\n...":file.code;
+        TextView code=label(preview,12,0xFFE0E7EF); code.setTypeface(Typeface.MONOSPACE);
+        code.setTextIsSelectable(true); code.setPadding(dp(4),dp(8),dp(4),dp(4)); card.addView(code);
+        Button expand=new Button(this); expand.setText(lines.length>4?"Show full code":"Hide code");
+        expand.setAllCaps(false); expand.setTextSize(10); card.addView(expand);
+        final boolean[] open={false};
+        expand.setOnClickListener(v->{open[0]=!open[0];code.setText(open[0]?file.code:preview);expand.setText(open[0]?"Minimize code":"Show full code");});
+        copy.setOnClickListener(v->{
+            ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(ClipData.newPlainText(file.name,file.code));
+            Toast.makeText(this,"Copied "+file.name,Toast.LENGTH_SHORT).show();
+        });
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2); lp.topMargin=dp(8); parent.addView(card,lp);
+    }
+
+    private void createZip(ArrayList<CodeFile> files) {
+        if(files==null||files.isEmpty()) return;
+        pendingZipFiles=new ArrayList<>(files);
+        Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT); i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("application/zip"); i.putExtra(Intent.EXTRA_TITLE,"GroqAI-Project.zip");
+        status.setText("● Working..."); status.setTextColor(0xFFFFC66D);
+        try { startActivityForResult(i,CREATE_ZIP_REQUEST); }
+        catch(Exception e) { status.setText("● Ready"); Toast.makeText(this,"Unable to open file saver.",Toast.LENGTH_LONG).show(); }
+    }
+
+    @Override protected void onActivityResult(int requestCode,int resultCode,Intent data) {
+        super.onActivityResult(requestCode,resultCode,data);
+        if(requestCode!=CREATE_ZIP_REQUEST) return;
+        if(resultCode!=RESULT_OK||data==null||data.getData()==null) { status.setText("● Ready"); return; }
+        Uri uri=data.getData(); ArrayList<CodeFile> files=new ArrayList<>(pendingZipFiles);
+        executor.execute(()->{
+            try {
+                OutputStream raw=getContentResolver().openOutputStream(uri);
+                if(raw==null) throw new Exception("Could not create ZIP.");
+                try(ZipOutputStream zip=new ZipOutputStream(new BufferedOutputStream(raw))) {
+                    for(CodeFile file:files) {
+                        String safe=file.name.replace("\\","/").replaceAll("^/+","");
+                        if(safe.contains("../")) throw new Exception("Unsafe generated file path.");
+                        zip.putNextEntry(new ZipEntry(safe)); zip.write(file.code.getBytes(StandardCharsets.UTF_8)); zip.closeEntry();
+                    }
+                    zip.finish();
+                }
+                main.post(()->{status.setText("● ZIP created");status.setTextColor(0xFF63D6A5);Toast.makeText(this,"Project ZIP created.",Toast.LENGTH_LONG).show();});
+            } catch(Exception e) {
+                main.post(()->{status.setText("● ZIP error");Toast.makeText(this,"ZIP failed: "+e.getMessage(),Toast.LENGTH_LONG).show();});
+            }
+        });
     }
 
     private void hideKeyboard() {

@@ -2,6 +2,10 @@ package com.azuki.groqchat;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Intent;
+import android.net.Uri;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -27,6 +31,11 @@ import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.BufferedOutputStream;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -42,6 +51,10 @@ public class MainActivity extends Activity {
     private static final String ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 
     private final ArrayList<JSONObject> messages = new ArrayList<>();
+    private final ArrayList<JSONObject> chats = new ArrayList<>();
+    private int currentChatIndex = -1;
+    private static final int CREATE_ZIP_REQUEST = 4107;
+    private ArrayList<CodeFile> pendingZipFiles = new ArrayList<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private LinearLayout messageList;
@@ -55,7 +68,8 @@ public class MainActivity extends Activity {
         super.onCreate(state);
         apiKey = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_API, "");
         buildInterface();
-        addHistoryMessage("system", "You are a helpful, friendly AI assistant. Answer clearly and naturally.");
+        loadChats();
+        if (chats.isEmpty()) createChat(); else switchChat(chats.size() - 1);
         addMessageBubble("assistant", "Hey! I'm ready. What would you like to talk about?");
         if (apiKey.trim().isEmpty()) main.post(this::showApiKeyDialog);
     }
@@ -97,6 +111,9 @@ public class MainActivity extends Activity {
         titles.addView(label(MODEL, 11, 0xFF8EA1B5));
         header.addView(titles, new LinearLayout.LayoutParams(0, -2, 1));
 
+        Button chatsButton = new Button(this);
+        chatsButton.setText("Chats"); chatsButton.setTextSize(11); chatsButton.setAllCaps(false);
+        header.addView(chatsButton, new LinearLayout.LayoutParams(dp(66), dp(42)));
         Button keyButton = new Button(this);
         keyButton.setText("API key");
         keyButton.setTextSize(11);
@@ -164,6 +181,7 @@ public class MainActivity extends Activity {
         });
         clear.setOnClickListener(v -> newChat());
         keyButton.setOnClickListener(v -> showApiKeyDialog());
+        chatsButton.setOnClickListener(v -> showChatsDialog());
     }
 
     private void showApiKeyDialog() {
@@ -255,8 +273,8 @@ public class MainActivity extends Activity {
 
         composer.setText("");
         hideKeyboard();
-        addHistoryMessage("user", prompt);
-        addMessageBubble("user", prompt);
+        if (currentChatIndex >= 0 && messages.size() <= 1) { try { chats.get(currentChatIndex).put("title", makeChatTitle(prompt)); } catch (Exception ignored) {} }
+        addHistoryMessage("user", prompt); addMessageBubble("user", prompt); saveCurrentChat();
         setWaiting(true);
         status.setText("● Thinking...");
         status.setTextColor(0xFFFFC66D);
@@ -265,8 +283,8 @@ public class MainActivity extends Activity {
             try {
                 String answer = requestGroq();
                 main.post(() -> {
-                    addHistoryMessage("assistant", answer);
-                    addMessageBubble("assistant", answer);
+                    status.setText(answer.contains("```") ? "● Working..." : "● Ready");
+                    addHistoryMessage("assistant", answer); addMessageBubble("assistant", answer); saveCurrentChat();
                     status.setText("● Ready");
                     status.setTextColor(0xFF63D6A5);
                     setWaiting(false);
@@ -299,7 +317,7 @@ public class MainActivity extends Activity {
             payload.put("model", MODEL);
             payload.put("messages", new JSONArray(messages));
             payload.put("temperature", 0.7);
-            payload.put("max_completion_tokens", 2048);
+            payload.put("max_completion_tokens", 4096);
 
             try (OutputStream out = connection.getOutputStream()) {
                 out.write(payload.toString().getBytes(StandardCharsets.UTF_8));

@@ -5,10 +5,15 @@ A native Java Android chat app for CodeAssist, powered by Groq's OpenAI-compatib
 ## Features
 - Model: openai/gpt-oss-120b
 - Multi-turn conversation context
-- New chat button
+- Persistent chat menu with automatic titles based on the first message
+- Multiple saved conversations on the device
+- GPT-OSS medium reasoning effort for analysis (reasoning text stays hidden)
+- Code-file blocks using fenced filenames such as `Main.java`
+- Copy button and collapsible code previews
+- Create a ZIP from generated code files using Android's file saver
+- Thinking and working status indicators
 - User and assistant message bubbles
 - Background network requests
-- Loading and connection status
 - API error messages
 - No third-party libraries
 
@@ -18,7 +23,7 @@ A native Java Android chat app for CodeAssist, powered by Groq's OpenAI-compatib
 3. Build and install the APK.
 4. Open the app and enter your Groq API key when prompted.
 5. Use the **API key** button in the header to change or clear the saved key.
-6. Connect to the internet and send a message.
+6. Connect to the internet and send a message. Ask for files using fenced filenames, for example `Main.java` followed by the code block. Use **Create ZIP** to export the generated files.
 
 ## API
 - POST https://api.groq.com/openai/v1/chat/completions
